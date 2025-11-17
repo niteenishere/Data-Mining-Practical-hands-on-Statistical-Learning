@@ -1,0 +1,278 @@
+---
+title: "Resampling methods"
+author: "Mr. Pardeshi"
+format: html
+editor: visual
+---
+
+## Quarto
+
+![Practical Sheet](Resamplic%20Practical%20Sheet.jpg){fig-align="center"}
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Required R Packages
+
+*First, you'll need to install and load the necessary packages.*
+
+-   *The **`ISLR2`** package contains the **`Auto`, `Portfolio`,** and **`Default`** datasets.*
+
+-   *The **`boot`** package is for cross-validation and bootstrapping.*
+
+-   *The **`MASS`** package contains the **`Boston`** dataset.*
+
+```{r}
+library(ISLR2)
+library(MASS)
+library(boot)
+```
+
+# 1) Validation Approaches (Auto Dataset)
+
+**Goal:** *To estimate the test error of polynomial regression models (**`mpg`** as response, **`horsepower`** as predictor ) using three different validation methods.*
+
+### 🧹 Data Cleaning
+
+The **`Auto`** dataset's **`horsepower`** variable is read as a character with some "?" values. We must clean it first.
+
+```{r}
+#| echo: false
+
+data(Auto)
+(typeof(Auto$horsepower))
+
+#| Omit rows with missing '?' values and convert horsepower to numeric
+Auto = Auto[Auto$horsepower != "?",]
+
+#| we can also omit the name column if it is not needed
+Auto = Auto[,-which(names(Auto)=='name')]
+
+Auto$horsepower=as.numeric(Auto$horsepower)
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
+
+**a) *Validation Set Approach -***
+
+Here, we split the data in half, train on one half, and test on the other. The `set.seed()` function ensures that our random split is reproducible.
+
+```{r}
+
+set.seed(1)
+
+train_index=sample(1:nrow(Auto),nrow(Auto)/2)
+test_index=-train_index
+
+
+#| initializing a vector to store thhe MSE results
+MSE_validation=numeric(3)
+names(MSE_validation)=paste("Poly",1:3)
+
+for(i in 1:3){
+  # fit polynomial model on training data
+  lm_fit=lm(mpg ~poly(horsepower,i),data=Auto,subset=train_index)
+  
+  # Predict on test 
+  y_pred=predict(lm_fit,data=Auto[test_index,])
+  y_true=Auto$mpg[test_index]
+  
+  # Calculate & Store test MSE
+  MSE_validation[i]=mean((y_pred - y_true)^2)
+}
+
+cat("Estimated test error rates for polynimial model of order 1 to 3 using Validation Set approach:",MSE_validation,'\n')
+
+
+```
+
+**b) Least-One-Out_Validation (LOOCV)**
+
+LOOCV is a special case of k-fold CV where k = n (number of observations). It trains on all data points *except one*, tests on that one, and repeats this for every data point.
+
+```{r}
+#| We must use glm() instead of lm() to be compatible with cv.glm()
+#| Initialize a vector to store MSE
+MSE_LOOCV = numeric(10)
+names(MSE_LOOCV) = paste("Poly",1:10)
+
+for(i in 1:10){
+  glm_fit=glm(mpg~poly(horsepower,i),data=Auto)
+  
+  # cv.glm with K = nrow(Auto) performs LOOCV
+  # delta[1] is the raw cross validation estimate of prediction error
+  MSE_LOOCV[i]=cv.glm(Auto,glm_fit,K=nrow(Auto))$delta[1]
+  
+}
+cat("Estimated test error rates for polynimial model of order 1 to 3 using LOOCV approach:",'\n',MSE_LOOCV)
+cat("Minimum test MSE by using LOOCV obtained for polynomial of order:",which.min(MSE_LOOCV),'\n')
+
+plot(1:10,MSE_LOOCV,type='b',xlab="polynomial degree", ylab='LOOCV test MSE',main='LOOCV Error v/s Model Complexity')
+```
+
+**c) k-Fold Cross-Validation (k=5 and k=10)** -
+
+This is the most common approach. It randomly splits the data into *k* "folds," trains on *k-1* folds, and tests on the held-out fold. This is repeated *k* times./
+
+```{r}
+
+#| K = 5
+set.seed(42)
+MSE_K5=numeric(10)
+names(MSE_K5)=paste("Poly",1:5)
+
+for(i in 1:10){
+  glm_K5=glm(mpg~poly(horsepower,i),data=Auto)
+  MSE_K5[i]=cv.glm(Auto,glm_K5, K=5)$delta[1]
+}
+cat("Estimated test error rates for polynimial model of order 1 to 3 using Cross Fold Validation approach where K=5:",'\n',MSE_K5)
+plot(1:10,MSE_K5,type='b',xlab="polynomial degree", ylab='LOOCV test MSE',main='5 Fold Cross Validation v/s Model Complexity',col='blue')
+
+
+#|---------- K = 10 -----------
+mse_k10 <- numeric(10)
+names(mse_k10) <- paste("Poly", 1:10)
+for (i in 1:10) {
+  glm_fit <- glm(mpg ~ poly(horsepower, i), data = Auto)
+  mse_k10[i] <- cv.glm(Auto, glm_fit, K = 10)$delta[1]
+}
+print("--- 10-Fold CV Test MSE ---")
+cat("Estimated test error rates for polynimial model of order 1 to 3 using Cross Fold Validation approach where K=10:",'\n',mse_k10)
+plot(1:10,mse_k10,type='b',xlab="polynomial degree", ylab='LOOCV test MSE',main='10 Fold Cross Validation v/s Model Complexity',col='red')
+dt=cbind(MSE_K5,mse_k10)
+colnames(dt)=paste("Cross Validation K",c(5,10));dt
+```
+
+# **2) Bootstrap for Portfolio Optimization**
+
+**Goal:** To estimate the optimal investment fraction $\alpha$ using the bootstrap, which will give us a measure of uncertainty (a standard error) for our estimate.
+
+The formula to minimize risk is: $\alpha=\frac{\sigma_{Y}^{2}-\sigma_{XY}}{\sigma_{X}^{2}+\sigma_{Y}^{2}-2\sigma_{XY}}$
+
+------------------------------------------------------------------------
+
+```{r}
+
+# 1. Define the function to calculate alpha
+# This function must take the data and an index vector as arguments
+
+data("Portfolio")
+# View(Portfolio)
+alpha.fn=function(data, index){
+  X = data$X[index]
+  Y= data$Y[index]
+  
+  alpha= (var(Y) - cov(X,Y))/(var(X)+var(Y)-2*cov(X,Y))
+  return(alpha)
+}
+
+alpha_estimate = alpha.fn(Portfolio,1:100)
+cat(paste("Original alpha estimate:",alpha_estimate))
+
+
+#| Generating 1000 bootstrap sample to estimate the Standard Error of alpha
+
+boot_result=boot(Portfolio,alpha.fn,R=1000);(boot_result)
+```
+
+#### 💡 Insights & Interpretation
+
+The `boot()` output will give you:
+
+-   **`t0` (Original):** This is the $\alpha$ value calculated using the original 100 data points (e.g., \~0.575). This is our single best guess.
+
+-   **`std.error`:** This is the key result (e.g., \~0.09). It's the **bootstrap standard error of** $\alpha$.
+
+-   **Interpretation:** Our optimal investment fraction is estimated to be $\alpha = 0.575$ (invest 57.5% in X, 42.5% in Y). The standard error of this estimate is 0.09. This SE tells us how much our $\alpha$ estimate would likely vary if we were to draw new samples of 100 observations. A smaller SE means a more precise and reliable estimate.
+
+# 3) Logistic Regression SEs (Default Dataset)
+
+**Goal:** To compare the standard errors for logistic regression coefficients (`income` and `balance`) calculated in two ways:
+
+1.  Using the standard formula (from `glm()` theory).
+
+2.  Using the bootstrap.
+
+```{r}
+data("Default")
+View(Default)
+Default$Defailt_binary=ifelse(Default$default == "Yes",1,0)
+
+glm_fit=glm(Defailt_binary ~ income + balance, data=Default,family='binomial')
+
+SE_formula=summary(glm_fit)$coefficients[,'Std. Error']
+
+boot.fn=function(data,index){
+  glm_fit=glm(Defailt_binary~ income+balance,data=Default,subset=index,family='binomial')
+  return(coef(glm_fit))
+}
+
+boot_results_logistic = boot(Default,boot.fn,R=1000)
+
+se_bootstrap = apply(boot_results_logistic$t,2,sd)
+print(se_bootstrap)
+
+comparison = data.frame( SE_from_GLM =SE_formula,
+                          SE_from_bootstrap =se_bootstrap);comparison
+```
+
+#### 💡 Insights & Interpretation
+
+-   The output table will show the standard errors for `(Intercept)`, `income`, and `balance` from both methods.
+
+-   You will observe that the **bootstrap SEs are extremely close to the SEs from the `glm()` summary**.
+
+-   **Interpretation:** This is a powerful validation. The `glm()` function's standard errors rely on mathematical assumptions (asymptotic normality of maximum likelihood estimates). The bootstrap makes no such assumptions and arrives at the same answer by repeatedly sampling the data.
+
+-   This similarity gives us great confidence in our model's p-values and confidence intervals. It confirms that the assumptions of the `glm` are likely met and that our results are robust.
+
+## 5) Prediction Intervals (cars Dataset)
+
+**Goal:** To construct a 95% prediction interval for `distance` when `speed = 20` using three different methods. A prediction interval (PI) aims to capture a *single future observation*, so it must be wider than a *confidence interval* (which captures the *mean* response).
+
+```{r}
+
+data("cars");View(cars)
+new_data <- data.frame(speed = 20)
+#| a) Fit the simple linear regression model.
+
+lm_fit_cars=lm(dist~speed,data=cars)
+
+print("----- b) Standard 95$ Prediction Interval-------")
+(PI_standard=predict(lm_fit_cars,data.frame(speed=20),interval = 'prediction'))
+
+
+# Get residuals and predicted value from original model
+original_pred_at_20 <- predict(lm_fit_cars, newdata = new_data)
+model_residuals <- residuals(lm_fit_cars)
+model_sigma_hat <- summary(lm_fit_cars)$sigma
+R <- 10000 # Number of simulations
+set.seed(42)
+
+# c) Non-parametric bootstrap PI [cite: 26]
+# We resample from the *residuals* and add them to the predicted value.
+# This assumes the errors are independent but not necessarily normal.
+boot_residuals <- sample(model_residuals, R, replace = TRUE)
+boot_preds_nonparam <- original_pred_at_20 + boot_residuals
+pi_nonparam <- quantile(boot_preds_nonparam, c(0.025, 0.975))
+print("--- c) Non-Parametric Bootstrap 95% PI ---")
+print(pi_nonparam)
+
+# d) Parametric bootstrap PI [cite: 27]
+# We sample from a *normal distribution* using the model's error variance.
+# This makes the same normality assumption as the standard method.
+boot_errors_param <- rnorm(R, mean = 0, sd = model_sigma_hat)
+boot_preds_param <- original_pred_at_20 + boot_errors_param
+pi_param <- quantile(boot_preds_param, c(0.025, 0.975))
+print("--- d) Parametric Bootstrap 95% PI ---")
+print(pi_param)
+```
+
+#### 💡 Insights & Interpretation
+
+-   You will see three different 95% prediction intervals for a speed of 20.
+
+-   **Standard vs. Parametric:** The intervals from (b) and (d) should be very similar. This is because the "standard" `predict()` function and the parametric bootstrap *both* assume the model's errors are normally distributed.
+
+-   **Non-Parametric:** The interval from (c) might be slightly different. It makes no assumption about the *shape* of the error distribution; it just re-uses the errors (residuals) it actually saw in the data.
+
+-   **Conclusion:** If the `lm_fit_cars` residuals are close to a normal distribution (which you can check with `plot(lm_fit_cars)`), all three methods will give very similar intervals. The non-parametric method is more robust if the errors are *not* normally distributed.

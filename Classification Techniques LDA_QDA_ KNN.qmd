@@ -1,0 +1,149 @@
+---
+title: "Classification Techniques: Topic 2"
+author: "Mr. Pardeshi"
+format: html
+editor: visual
+---
+
+## Quarto
+
+![Classification Techniques](Classification Techniques LDA_QDA__ KNN.jpg)
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## 
+
+```{r}
+library(dplyr)
+library(MASS)
+library(ISLR2)
+library(caret) # ConfusionMatrix
+data(package='ISLR2',Smarket)
+View(Smarket)
+```
+
+**a) Logistic Regression :**
+
+```{r}
+#| echo: false
+Logit_model= glm(Direction~., data=Smarket, family='binomial')
+summary(Logit_model)
+plot(Logit_model)
+
+#| Confusion Matrix
+predict_probs=predict(Logit_model,Smarket,type='response')
+predict=ifelse(predict_probs >= 0.5, 1,0)
+library(caret)
+Smarket$Direction=recode(Smarket$Direction,Up=1,Down=0)
+CM=confusionMatrix(as.factor(Smarket$Direction),reference=as.factor(predict))
+print(CM)
+table(Smarket$Direction,predict)
+```
+
+💡**Interpretation :**
+
+-   Looking at the p value for each predictor in the fitted logistic model it is found that none of the independent feature playing an important role for prediction *i.e.,* we didn't found any predictor significant.
+
+# C) Fitting model for Train and Test split
+
+```{r}
+
+train=Smarket[Smarket$Year== c(2001,2002,2003,2004),]
+test=Smarket[Smarket$Year==2005,]
+
+Logit_model1= glm(Direction ~., data=train, family='binomial')
+summary(Logit_model1)
+plot(Logit_model1)
+
+#| Confusion Matrix
+predict_probs1=predict(Logit_model1,newdata=test,type='response')
+predict1=as.factor(ifelse(predict_probs1 >= 0.5, 1,0));length(predict1)
+library(caret)
+test$Direction=as.factor(recode(test$Direction,Up=1,Down=0))
+CM1=confusionMatrix(test$Direction,reference=predict1)
+print(CM1)
+table(test$Direction,predict1)
+```
+
+-   **Interpretation:** The model was right 96.03% of the time. (242 out of 252 predictions).
+
+-   **Sensitivity : 0.9174,** The model successfully identified 91.74% of all the '0' cases. (It found 111 out of the 121 total '0's).
+
+-   **Specificity : 1.0000,** The model successfully identified 100% of all the '1' cases. It made *zero* mistakes in this regard.
+
+# D) Fitting same model for Lag1 and Lag2 variables only
+
+```{r}
+
+Logit_model2= glm(Direction ~ Lag1 + Lag2, data=train, family='binomial')
+summary(Logit_model2)
+plot(Logit_model2)
+
+#| Confusion Matrix
+predict_probs2=predict(Logit_model2,newdata=test,type='response')
+predict2=as.factor(ifelse(predict_probs2 >= 0.5, 1,0));length(predict2)
+library(caret)
+test$Direction=as.factor(recode(test$Direction,Up=1,Down=0))
+CM2=confusionMatrix(test$Direction,reference=predict2)
+print(CM2)
+table(test$Direction,predict1)
+
+
+```
+
+-   **Interpretation:** The model was right 44.84% of the time. (113 out of 252 predictions).
+
+-   **Sensitivity : 0.4440,** The model successfully identified 44.40% of all the '0' cases. (It found 111 out of the 240 total '0's).
+
+-   **Specificity : 1.0000,** The model successfully identified 100% of all the '1' cases. It made *zero* mistakes in this regard.
+
+# E) USING L-D-A for the same Cycle
+
+```{r}
+
+lda_model=lda(Direction~ Lag1+Lag2,data=train)
+summary(lda_model)
+
+pred_lda=predict(lda_model,test)
+pred=as.factor(ifelse(pred_lda$class=='Up',1,0));length(pred)
+CM3=confusionMatrix(test$Direction,pred)
+print(CM3)
+```
+
+-   **Interpretation:** The model was right 44.84% of the time. (113 out of 252 predictions).
+
+-   **Sensitivity : 0.4440,** The model successfully identified 44.40% of all the '0' cases. (It found 111 out of the 240 total '0's).
+
+-   **Specificity : 1.0000,** The model successfully identified 100% of all the '1' cases. It made *zero* mistakes in this regard.
+
+# D) USING Q-D-A for the same Cycle
+
+```{r}
+qda_model=qda(Direction~ Lag1+Lag2,train)
+pred_qda=predict(qda_model,test)
+pred_qda1=as.factor(ifelse(pred_qda$class=='Up',1,0))
+(CM4=confusionMatrix(test$Direction,pred_qda1))
+```
+
+-   **Interpretation:** The model was right 45.63% of the time. (115 out of 252 predictions).
+
+-   **Sensitivity : 0.4462,** The model successfully identified 44.62% of all the '0' cases. (It found 108 out of the 242 total '0's).
+
+-   **Specificity : 0.7000,** The model successfully identified 70% of all the '1' cases. It made *zero* mistakes in this regard.
+
+# G)USING KNN for the same Cycle
+
+```{r}
+library(class)
+knn_model=knn(train=train[,-9],test=test[,-9],cl=train$Direction,k=1)
+knn_pred=as.factor(ifelse(knn_model=='Up',1,0));length(knn_pred)
+(CM4=confusionMatrix(knn_pred,test$Direction))
+```
+
+-   **Interpretation:** The model was right 76.59% of the time. (193 out of 252 predictions).
+
+-   **Sensitivity : 0.8018,** The model successfully identified 80.18% of all the '0' cases. (It found 89 out of the 242 total '0's).
+
+-   **Specificity : 0.7363,** The model successfully identified 73.63% of all the '1' cases. It made *zero* mistakes in this regard.
+
+# 
